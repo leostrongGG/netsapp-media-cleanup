@@ -1,0 +1,33 @@
+# Diretórios de dados gerados
+runs/
+backups/
+quarantine/
+tmp_restore/
+
+# Logs
+*.log
+
+# Arquivos temporários
+*.tmp
+*.swp
+*~
+
+# CSV e dados sensíveis
+*.csv
+
+# Configurações locais (não commitar credenciais)
+rclone.conf
+.env
+
+# Backups de produção com credenciais reais
+*.production
+config.local.sh
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.sublime-*
