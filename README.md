@@ -9,7 +9,8 @@ Este projeto foi criado para gerenciar o crescimento descontrolado de arquivos d
 - ✅ Identificar mídias antigas vinculadas a tickets
 - ✅ Criar backups locais timestamped
 - ✅ Mover arquivos para quarentena
-- ✅ Upload automático para storage remoto (Backblaze B2 via rclone)
+- ✅ Upload automático para storage remoto (Backblaze B2/S3 via rclone)
+- ✅ Atualizar automaticamente `mediaUrl` no banco para URL pública do S3 após upload
 - ✅ Gerar scripts de restauração automaticamente
 - ✅ Manter histórico completo de todas as operações
 
@@ -48,13 +49,19 @@ cleanup/
 ├── cleanup_media_manager.sh      # Script principal
 ├── restore_helper.sh             # Helper de restauração
 ├── run_dry.sh                    # Wrapper para dry-run
+├── .env_cleanup_exemplo          # Exemplo de configuração
+├── .env_cleanup                  # Configuração local (NÃO commitar)
 ├── runs/                         # Artefatos de cada execução
 │   └── run_20260107_150000/
 │       ├── media_ticket_candidates.csv
 │       ├── media_ticket_candidates.txt
+│       ├── db_url_update.csv     # Mapeamento old_url -> S3 URL
+│       ├── db_url_update.sql     # SQL executado
+│       ├── db_update.log         # Resultado do UPDATE no PostgreSQL
 │       ├── preview_move_cmds.sh
 │       ├── do_move_cmds.sh
-│       ├── restore_from_*.sh    # Scripts de restauração
+│       ├── restore_from_*.sh     # Scripts de restauração
+│       ├── restore_db_urls_*.sh  # Rollback de URLs do banco
 │       └── run.log
 ├── backups/                      # Backups locais timestamped
 │   └── media_backup_20260107_150000/
@@ -90,22 +97,25 @@ rclone config
 # Configure seu remote Backblaze B2, S3, etc.
 ```
 
-4. **Edite variáveis no script (opcional)**
-
-Abra [cleanup_media_manager.sh](cleanup_media_manager.sh) e ajuste:
+4. **Crie o arquivo de configuração local**
 
 ```bash
-DAYS=15                           # Dias para considerar mídia antiga
-HOME_BASE="/home/ubuntu/cleanup"  # Pasta base
-MEDIA_ROOT="/var/lib/docker/volumes/ticketz-docker-acme_backend_public/_data"
-DB_CONTAINER="ticketz-docker-acme-postgres-1"
-DB_NAME="ticketz"
-DB_USER="ticketz"
-
-# Rclone remote (configure uma vez)
-RCLONE_REMOTE="cleanup:cleanup/media"
-RCLONE_CONFIG="/home/ubuntu/.config/rclone/rclone.conf"
+cp .env_cleanup_exemplo .env_cleanup
+nano .env_cleanup
 ```
+
+Ajuste no mínimo estas variáveis:
+
+```bash
+RCLONE_REMOTE="seu_remote:seu_bucket/caminho/para/media"
+S3_PUBLIC_URL="https://sua-url-publica.example.com/bucket/caminho"
+```
+
+> ⚠️ **Nunca commite `.env_cleanup` no Git.** Ele contém dados sensíveis da sua infraestrutura.
+>
+> O script carrega automaticamente `.env_cleanup` do mesmo diretório, então você pode fazer `git pull` para atualizar o script sem perder suas configurações.
+
+Todas as variáveis disponíveis estão documentadas em [.env_cleanup_exemplo](.env_cleanup_exemplo).
 
 ## 💡 Uso
 
@@ -145,7 +155,9 @@ sudo ./cleanup_media_manager.sh --days 5 --do-move
 sudo ./cleanup_media_manager.sh --days 5 --do-move --limit 10
 ```
 
-### 4️⃣ Pipeline Completo (Move + Upload + Cleanup)
+### 4️⃣ Pipeline Completo (Move + Upload + Update DB + Cleanup)
+
+Com `UPDATE_DB_AFTER_PUSH=1` no `.env_cleanup` (padrão), o script também atualiza o `mediaUrl` no banco para a URL pública do S3, então o Ticketz continua servindo as mídias sem os arquivos locais.
 
 ```bash
 sudo ./cleanup_media_manager.sh \
@@ -157,8 +169,9 @@ sudo ./cleanup_media_manager.sh \
 
 Executa:
 1. Move arquivos → quarentena
-2. Upload para Backblaze B2 via rclone
-3. Deleta arquivos da quarentena (só deste run) após sucesso
+2. Upload para Backblaze B2/S3 via rclone
+3. Atualiza `Messages.mediaUrl` de `media/...` para `https://...`
+4. Deleta arquivos da quarentena (só deste run) após sucesso
 
 ### 5️⃣ Testar Upload Rclone (Dry-Run Manual)
 
@@ -223,9 +236,13 @@ sudo bash restore_from_backup_20260107_150000.sh \
 sudo bash restore_from_quarantine_20260107_150000.sh \
   /home/ubuntu/cleanup/runs/run_20260107_150000
 
-# Do remote (Backblaze B2)
+# Do remote (Backblaze B2/S3) — restaura arquivos E reverte mediaUrl no banco
 sudo bash restore_from_remote_20260107_150000.sh \
   yourremote:yourbucket/path/to/media \
+  /home/ubuntu/cleanup/runs/run_20260107_150000
+
+# Reverter apenas as URLs do banco (sem mover arquivos)
+sudo bash restore_db_urls_20260107_150000.sh \
   /home/ubuntu/cleanup/runs/run_20260107_150000
 ```
 
@@ -248,14 +265,16 @@ Adicione uma das opções:
 
 ```cron
 # Opção 1: Cleanup semanal (domingo às 03:00) - RECOMENDADO
-0 3 * * 0 /home/ubuntu/cleanup/cleanup_media_manager.sh --days 15 --do-move --push-remote --delete-quarantine-after-push >> /home/ubuntu/cleanup/cleanup_media.log 2>&1
+0 3 * * 0 /home/ubuntu/cleanup/cleanup_media_manager.sh --days 15 >> /home/ubuntu/cleanup/cleanup_media.log 2>&1
 
 # Opção 2: Cleanup diário às 03:00
-0 3 * * * /home/ubuntu/cleanup/cleanup_media_manager.sh --days 15 --do-move --push-remote --delete-quarantine-after-push >> /home/ubuntu/cleanup/cleanup_media.log 2>&1
+0 3 * * * /home/ubuntu/cleanup/cleanup_media_manager.sh --days 15 >> /home/ubuntu/cleanup/cleanup_media.log 2>&1
 
 # Opção 3: Apenas dry-run diário (para monitoramento)
 0 3 * * * /home/ubuntu/cleanup/run_dry.sh --days 15 >> /home/ubuntu/cleanup/cleanup_dry.log 2>&1
 ```
+
+> As ações (`--do-move`, `--push-remote`, etc.) agora são controladas por `.env_cleanup`, então o comando do cron pode ser simples. Você ainda pode usar flags para override temporário.
 
 **Verificar se está ativo:**
 ```bash
@@ -292,7 +311,11 @@ Cada execução cria em `runs/run_YYYYMMDD_HHMMSS/`:
 | `do_delete_cmds.sh` | Script de ação (delete) - **não-executável** |
 | `restore_from_backup_*.sh` | Restaurar de backup local |
 | `restore_from_quarantine_*.sh` | Restaurar da quarentena |
-| `restore_from_remote_*.sh` | Restaurar do remote (B2) |
+| `restore_from_remote_*.sh` | Restaurar do remote (B2/S3) e reverter URLs do banco |
+| `restore_db_urls_*.sh` | Reverter `mediaUrl` do S3 para `media/` sem mover arquivos |
+| `db_url_update.csv` | Mapeamento `media/...` → `https://...` |
+| `db_url_update.sql` | SQL executado no PostgreSQL |
+| `db_update.log` | Resultado do UPDATE no banco |
 | `moved_list.txt` | Lista de arquivos efetivamente movidos |
 | `rclone_upload.log` | Log do upload rclone |
 | `run.log` | Log geral da execução |
@@ -350,6 +373,9 @@ Options:
   --do-move                   Mover arquivos para quarentena
   --push-remote               Upload para remote via rclone
   --rclone-remote NAME/PATH   Override RCLONE_REMOTE
+  --s3-public-url URL         Override S3_PUBLIC_URL
+  --update-db-after-push      Atualizar mediaUrl no banco para URL S3 (default)
+  --no-update-db-after-push   Não atualizar mediaUrl no banco
   --delete-quarantine-after-push  Deletar arquivos da quarentena após upload
   --limit N                   Limitar a N arquivos (0 = todos)
   --prune-keep N              Manter últimos N backups locais (0 = disable)
@@ -357,6 +383,8 @@ Options:
   --verbose                   Mais output (default)
   --help                      Mostrar ajuda
 ```
+
+As configurações principais (DAYS, RCLONE_REMOTE, S3_PUBLIC_URL, etc.) devem ser definidas no arquivo `.env_cleanup`.
 
 ## 🤝 Contribuindo
 

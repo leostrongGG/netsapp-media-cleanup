@@ -2,63 +2,50 @@
 #
 # cleanup_media_manager.sh
 #
-# Manager para backup / move (quarantine) / upload (rclone) e restore de mídias referenciadas por Tickets.
-# Organização por run em ${HOME_BASE} (default /home/ubuntu/cleanup).
+# Manager para backup / move (quarantine) / upload (rclone) e restore de mídias
+# referenciadas por Tickets do Ticketz.
 #
-# IMPORTANT:
-# - Por segurança o script gera previews (com echo) e ACTION scripts (sem echo) mas NÃO torna os ACTION scripts executáveis.
-#   Execute ACTION scripts manualmente com `sudo bash /home/ubuntu/cleanup/runs/run_YYYYMMDD_HHMMSS/do_move_cmds.sh`.
-# - Configure RCLONE_REMOTE e RCLONE_CONFIG no topo do script (uma vez) ou passe --rclone-remote ao executar.
-#
-# EXAMPLES (copiar/colar):
-#  - Executar com variáveis padrão (dry-run, DAYS=15):
-#      sudo /home/ubuntu/cleanup/cleanup_media_manager.sh
-#
-#  - Dry-run (gera CSV e previews) com 5 dias:
-#      sudo /home/ubuntu/cleanup/cleanup_media_manager.sh --days 5
-#
-#  - Apenas backup (create timestamped backup; no move):
-#      sudo /home/ubuntu/cleanup/cleanup_media_manager.sh --days 5 --do-backup
-#
-#  - Apenas move (move ALL candidates older than DAYS; use --limit N for testing):
-#      sudo /home/ubuntu/cleanup/cleanup_media_manager.sh --days 5 --do-move
-#
-#  - Move + upload to Backblaze B2 + delete this run's files from quarantine on success:
-#      sudo /home/ubuntu/cleanup/cleanup_media_manager.sh --days 5 --do-move --push-remote --delete-quarantine-after-push
-#    (use --rclone-remote 'yourremote:yourbucket/path' to override the default remote defined in the script)
-#
-# NOTES:
-# - The script assumes access to Docker (psql inside container) and the media volume path.
-# - You may place the script in another folder; set --home-base to change output layout.
-# - BACKUPS are stored under ${HOME_BASE}/backups/media_backup_<timestamp>
-# - Quarantine (fixed) is ${HOME_BASE}/quarantine
-# - Runs artifacts are stored in ${HOME_BASE}/runs/run_<timestamp>
+# IMPORTANTE:
+# - NÃO edite este script diretamente para configurar seu ambiente.
+# - Copie .env_cleanup_exemplo para .env_cleanup e ajuste os valores lá.
+# - Execute sempre via: sudo /home/ubuntu/cleanup/cleanup_media_manager.sh
 #
 set -euo pipefail
 
 # ---------------------------
-# Defaults (user prefs)
+# Load environment config
 # ---------------------------
-DAYS=15
-HOME_BASE="/home/ubuntu/cleanup"   # change if you want artifacts somewhere else
-MEDIA_ROOT="/var/lib/docker/volumes/ticketz-docker-acme_backend_public/_data"
-DB_CONTAINER="ticketz-docker-acme-postgres-1"
-DB_NAME="ticketz"
-DB_USER="ticketz"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/.env_cleanup"
+if [[ -f "${ENV_FILE}" ]]; then
+  # shellcheck source=/dev/null
+  source "${ENV_FILE}"
+fi
 
-DO_BACKUP="${DO_BACKUP:-0}"   # Padrão: não fazer backup ✅
-DO_MOVE="${DO_MOVE:-1}"       # Padrão: SIM mover ✅
-PUSH_REMOTE="${PUSH_REMOTE:-1}" # Padrão: SIM enviar rclone ✅
+# ---------------------------
+# Defaults (fallbacks)
+# ---------------------------
+DAYS="${DAYS:-15}"
+HOME_BASE="${HOME_BASE:-/home/ubuntu/cleanup}"
+MEDIA_ROOT="${MEDIA_ROOT:-/var/lib/docker/volumes/ticketz-docker-acme_backend_public/_data}"
+DB_CONTAINER="${DB_CONTAINER:-ticketz-docker-acme-postgres-1}"
+DB_NAME="${DB_NAME:-ticketz}"
+DB_USER="${DB_USER:-ticketz}"
 
-# SINGLE rclone remote variable (set here once; can override with --rclone-remote)
-RCLONE_REMOTE="yourremote:yourbucket/path/to/media"
-# path to rclone config (use your user rclone config so sudo calls also find it)
-RCLONE_CONFIG="/home/ubuntu/.config/rclone/rclone.conf"
+DO_BACKUP="${DO_BACKUP:-0}"
+DO_MOVE="${DO_MOVE:-1}"
+PUSH_REMOTE="${PUSH_REMOTE:-1}"
 
-DELETE_QUAR_AFTER_PUSH=1
-LIMIT=0      # 0 = all (move all candidates)
-PRUNE_KEEP=5 # keep last N local backups (0 = disable)
-VERBOSE=1
+RCLONE_REMOTE="${RCLONE_REMOTE:-yourremote:yourbucket/path/to/media}"
+RCLONE_CONFIG="${RCLONE_CONFIG:-/home/ubuntu/.config/rclone/rclone.conf}"
+
+S3_PUBLIC_URL="${S3_PUBLIC_URL:-}"
+
+DELETE_QUAR_AFTER_PUSH="${DELETE_QUAR_AFTER_PUSH:-1}"
+UPDATE_DB_AFTER_PUSH="${UPDATE_DB_AFTER_PUSH:-1}"
+LIMIT="${LIMIT:-0}"
+PRUNE_KEEP="${PRUNE_KEEP:-5}"
+VERBOSE="${VERBOSE:-1}"
 
 # ---------------------------
 # Parse CLI args
@@ -75,7 +62,10 @@ while [[ $# -gt 0 ]]; do
     --do-move) DO_MOVE=1; shift;;
     --push-remote) PUSH_REMOTE=1; shift;;
     --rclone-remote) RCLONE_REMOTE="$2"; shift 2;;
+    --s3-public-url) S3_PUBLIC_URL="$2"; shift 2;;
     --delete-quarantine-after-push) DELETE_QUAR_AFTER_PUSH=1; shift;;
+    --no-update-db-after-push) UPDATE_DB_AFTER_PUSH=0; shift;;
+    --update-db-after-push) UPDATE_DB_AFTER_PUSH=1; shift;;
     --limit) LIMIT="$2"; shift 2;;
     --prune-keep) PRUNE_KEEP="$2"; shift 2;;
     --quiet) VERBOSE=0; shift;;
@@ -90,6 +80,9 @@ Options:
   --do-move                   Move selected files to quarantine (fixed dir ${HOME_BASE}/quarantine)
   --push-remote               After move, upload quarantine files to remote (RCLONE_REMOTE)
   --rclone-remote NAME/PATH   Override RCLONE_REMOTE for this run
+  --s3-public-url URL         Override S3_PUBLIC_URL for this run
+  --update-db-after-push      Update Messages.mediaUrl to S3 URL after upload (default)
+  --no-update-db-after-push   Skip database mediaUrl update after upload
   --delete-quarantine-after-push
                               After successful push, delete only this run's files from quarantine
   --limit N                   When moving, limit to first N files (0 = all)
@@ -114,6 +107,9 @@ LOG_FILE="${RUN_DIR}/run.log"
 CSV_FILE="${RUN_DIR}/media_ticket_candidates.csv"
 CANDIDATES_LIST="${RUN_DIR}/media_ticket_candidates.txt"
 MOVED_LIST="${RUN_DIR}/moved_list.txt"
+DB_UPDATE_CSV="${RUN_DIR}/db_url_update.csv"
+DB_UPDATE_SQL="${RUN_DIR}/db_url_update.sql"
+DB_UPDATE_LOG="${RUN_DIR}/db_update.log"
 PREVIEW_DELETE="${RUN_DIR}/preview_delete_cmds.sh"
 PREVIEW_MOVE="${RUN_DIR}/preview_move_cmds.sh"
 DO_DELETE_SCRIPT="${RUN_DIR}/do_delete_cmds.sh"
@@ -123,12 +119,24 @@ RCLONE_LIST="${RUN_DIR}/rclone_files_list.txt"
 sudo mkdir -p "${HOME_BASE}" "${RUN_DIR}" "${HOME_BASE}/backups" "${QUAR_DIR}"
 sudo chown -R "$USER":"$USER" "${HOME_BASE}" || true
 
+if [[ -z "${S3_PUBLIC_URL}" ]]; then
+  if [[ "${UPDATE_DB_AFTER_PUSH}" -eq 1 && "${PUSH_REMOTE}" -eq 1 ]]; then
+    echo "ERROR: S3_PUBLIC_URL is required when UPDATE_DB_AFTER_PUSH=1 and PUSH_REMOTE=1. Set it in .env_cleanup or pass --s3-public-url."
+    exit 1
+  fi
+  if [[ "${PUSH_REMOTE}" -eq 1 ]]; then
+    log "WARN: S3_PUBLIC_URL is empty; database mediaUrl will not be updated."
+  fi
+fi
+
 log "Run dir: ${RUN_DIR}"
 log "Media root: ${MEDIA_ROOT}"
 log "Quarantine dir: ${QUAR_DIR}"
 log "Backup dir (if used): ${BACKUP_DIR}"
 log "Rclone remote in use: ${RCLONE_REMOTE}"
 log "Rclone config file: ${RCLONE_CONFIG}"
+log "S3 public URL base: ${S3_PUBLIC_URL}"
+log "Update DB after push: ${UPDATE_DB_AFTER_PUSH}"
 
 # ---------------------------
 # Step 1: export mediaUrl from DB
@@ -246,14 +254,66 @@ else
 fi
 
 # ---------------------------
+# Helper: generate CSV of (old_db_url, new_s3_url) for this run
+# ---------------------------
+generate_db_url_update_csv() {
+  local csv_out="$1"
+  local s3_base="${S3_PUBLIC_URL%/}" # ensure no trailing slash
+  : > "${csv_out}"
+  while IFS= read -r rel; do
+    [[ -z "${rel}" ]] && continue
+    old_url="media/${rel}"
+    new_url="${s3_base}/${rel}"
+    # Escape double quotes for CSV by doubling them
+    old_escaped="${old_url//\"/\"\"}"
+    new_escaped="${new_url//\"/\"\"}"
+    printf '"%s","%s"\n' "${old_escaped}" "${new_escaped}" >> "${csv_out}"
+  done < "${RCLONE_LIST}"
+}
+
+# ---------------------------
 # Step 10: optionally push to remote via rclone
 # ---------------------------
 if [[ "${PUSH_REMOTE}" -eq 1 ]]; then
   log "Using rclone remote: ${RCLONE_REMOTE}"
+  log "Using S3 public URL base: ${S3_PUBLIC_URL}"
   cp "${CANDIDATES_LIST}" "${RCLONE_LIST}"
   log "Running rclone copy ${QUAR_DIR}/ -> ${RCLONE_REMOTE} using files-from ${RCLONE_LIST}"
   if sudo rclone --config "${RCLONE_CONFIG}" copy "${QUAR_DIR}/" "${RCLONE_REMOTE}" --files-from "${RCLONE_LIST}" --progress --log-file="${RUN_DIR}/rclone_upload.log" --log-level INFO 2>&1 | tee -a "${LOG_FILE}"; then
     log "rclone upload completed successfully. Log: ${RUN_DIR}/rclone_upload.log"
+
+    if [[ "${UPDATE_DB_AFTER_PUSH}" -eq 1 ]]; then
+      log "Updating database mediaUrl entries to S3 public URLs..."
+      generate_db_url_update_csv "${DB_UPDATE_CSV}"
+      log "DB update CSV rows: $(wc -l < "${DB_UPDATE_CSV}" 2>/dev/null || echo 0)"
+
+      {
+        echo "CREATE TEMP TABLE s3_media_urls (old_url VARCHAR(255) PRIMARY KEY, new_url VARCHAR(255) NOT NULL);"
+        echo "COPY s3_media_urls (old_url, new_url) FROM STDIN WITH (FORMAT csv, DELIMITER ',', QUOTE '\"', HEADER false, NULL '');"
+        cat "${DB_UPDATE_CSV}"
+        echo "\\."
+        echo "UPDATE \"Messages\" m"
+        echo "SET \"mediaUrl\" = u.new_url,"
+        echo "    \"updatedAt\" = NOW()"
+        echo "FROM s3_media_urls u"
+        echo "WHERE m.\"mediaUrl\" = u.old_url"
+        echo "  AND m.\"ticketId\" IS NOT NULL"
+        echo "  AND m.\"mediaUrl\" <> u.new_url;"
+        echo "SELECT COUNT(*) AS updated_rows FROM \"Messages\" WHERE \"mediaUrl\" IN (SELECT new_url FROM s3_media_urls);"
+      } > "${DB_UPDATE_SQL}"
+
+      if sudo docker exec -i "${DB_CONTAINER}" psql -U "${DB_USER}" -d "${DB_NAME}" -At -q -f - < "${DB_UPDATE_SQL}" > "${DB_UPDATE_LOG}" 2>&1; then
+        log "Database mediaUrl update completed. See ${DB_UPDATE_LOG}"
+        tail -n 5 "${DB_UPDATE_LOG}" 2>/dev/null | while IFS= read -r line; do log "DB: ${line}"; done
+      else
+        echo "ERROR: database mediaUrl update failed (see ${DB_UPDATE_LOG}). Quarantine files will NOT be deleted so you can retry."
+        tail -n 20 "${DB_UPDATE_LOG}" 2>/dev/null || true
+        exit 3
+      fi
+    else
+      log "UPDATE_DB_AFTER_PUSH disabled; skipping database mediaUrl rewrite."
+    fi
+
     if [[ "${DELETE_QUAR_AFTER_PUSH}" -eq 1 ]]; then
       log "Deleting only this run's files from quarantine (as requested)..."
       del_list="${MOVED_LIST}"
@@ -268,7 +328,7 @@ if [[ "${PUSH_REMOTE}" -eq 1 ]]; then
       log "Deleted run's files from quarantine"
     fi
   else
-    echo "ERROR: rclone upload failed (see ${RUN_DIR}/rclone_upload.log). Quarantine NOT modified."
+    echo "ERROR: rclone upload failed (see ${RUN_DIR}/rclone_upload.log). Quarantine and database NOT modified."
     exit 2
   fi
 fi
@@ -279,6 +339,7 @@ fi
 RESTORE_FROM_BACKUP="${RUN_DIR}/restore_from_backup_${TIMESTAMP}.sh"
 RESTORE_FROM_QUAR="${RUN_DIR}/restore_from_quarantine_${TIMESTAMP}.sh"
 RESTORE_FROM_REMOTE="${RUN_DIR}/restore_from_remote_${TIMESTAMP}.sh"
+RESTORE_DB_URLS="${RUN_DIR}/restore_db_urls_${TIMESTAMP}.sh"
 
 # restore from backup
 cat > "${RESTORE_FROM_BACKUP}" <<'REST'
@@ -331,11 +392,23 @@ cat > "${RESTORE_FROM_REMOTE}" <<'REST'
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ $# -lt 2 ]]; then
-  echo "Usage: $0 <rclone_remote> /path/to/run_dir"; exit 1
+  echo "Usage: $0 <rclone_remote> /path/to/run_dir [s3_public_url]"; exit 1
 fi
 RCLONE_REMOTE="$1"
 RUN_DIR="$2"
+S3_BASE="${3:-}"
 MEDIA_ROOT="/var/lib/docker/volumes/ticketz-docker-acme_backend_public/_data"
+DB_CONTAINER="ticketz-docker-acme-postgres-1"
+DB_NAME="ticketz"
+DB_USER="ticketz"
+CSV_FILE="${RUN_DIR}/db_url_update.csv"
+if [[ -z "${S3_BASE}" && -f "${CSV_FILE}" ]]; then
+  # derive S3_BASE from the first new_url in the CSV (column 2, strip quotes)
+  S3_BASE="$(head -n1 "${CSV_FILE}" | awk -F'","' '{print $2}' | sed 's/^"//; s/"$//' | xargs -I {} dirname {} | sed 's|/[^/]*$||')"
+fi
+if [[ -z "${S3_BASE}" ]]; then
+  echo "Error: could not determine S3_BASE. Pass it as third argument or keep db_url_update.csv."; exit 1
+fi
 TMP_RESTORE="/tmp/restore_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$TMP_RESTORE"
 # point rclone to ubuntu's config so sudo calls work
@@ -351,10 +424,63 @@ while IFS= read -r rel; do
   fi
 done < "${RUN_DIR}/media_ticket_candidates.txt"
 sudo rm -rf "${TMP_RESTORE}"
+# Revert mediaUrl from S3 URL back to local media/ path
+if [[ -f "${CSV_FILE}" ]]; then
+  echo "Reverting database mediaUrl from S3 back to local path..."
+  {
+    echo "CREATE TEMP TABLE s3_media_urls (old_url VARCHAR(255) PRIMARY KEY, new_url VARCHAR(255) NOT NULL);"
+    echo "COPY s3_media_urls (old_url, new_url) FROM STDIN WITH (FORMAT csv, DELIMITER ',', QUOTE '\"', HEADER false, NULL '');"
+    cat "${CSV_FILE}"
+    echo "\."
+    echo "UPDATE \"Messages\" m"
+    echo "SET \"mediaUrl\" = u.old_url,"
+    echo "    \"updatedAt\" = NOW()"
+    echo "FROM s3_media_urls u"
+    echo "WHERE m.\"mediaUrl\" = u.new_url"
+    echo "  AND m.\"ticketId\" IS NOT NULL"
+    echo "  AND m.\"mediaUrl\" <> u.old_url;"
+    echo "SELECT COUNT(*) AS reverted_rows FROM \"Messages\" WHERE \"mediaUrl\" IN (SELECT old_url FROM s3_media_urls);"
+  } | sudo docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -At -q -f - > "${RUN_DIR}/db_url_restore.log" 2>&1
+  echo "Database URL revert completed. Log: ${RUN_DIR}/db_url_restore.log"
+else
+  echo "WARN: db_url_update.csv not found; database mediaUrl was not reverted."
+fi
 REST
 chmod 644 "${RESTORE_FROM_REMOTE}"
 
-log "Generated artifacts in ${RUN_DIR}:"
+# DB URL rollback script: reverts Messages.mediaUrl from S3 URL back to local media/ path
+cat > "${RESTORE_DB_URLS}" <<REST
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ \$# -lt 1 ]]; then
+  echo "Usage: \$0 /path/to/run_dir"; exit 1
+fi
+RUN_DIR="\$1"
+MEDIA_ROOT="${MEDIA_ROOT}"
+S3_BASE="${S3_PUBLIC_URL%/}"
+CSV_FILE="\${RUN_DIR}/db_url_update.csv"
+if [[ ! -f "\${CSV_FILE}" ]]; then
+  echo "Missing DB URL update CSV: \${CSV_FILE}"; exit 1
+fi
+{
+  echo "CREATE TEMP TABLE s3_media_urls (old_url VARCHAR(255) PRIMARY KEY, new_url VARCHAR(255) NOT NULL);"
+  echo "COPY s3_media_urls (old_url, new_url) FROM STDIN WITH (FORMAT csv, DELIMITER ',', QUOTE '\"', HEADER false, NULL '');"
+  cat "\${CSV_FILE}"
+  echo "\\."
+  echo "UPDATE \\"Messages\\" m"
+  echo "SET \\"mediaUrl\\" = u.old_url,"
+  echo "    \\"updatedAt\\" = NOW()"
+  echo "FROM s3_media_urls u"
+  echo "WHERE m.\\"mediaUrl\\" = u.new_url"
+  echo "  AND m.\\"ticketId\\" IS NOT NULL"
+  echo "  AND m.\\"mediaUrl\\" <> u.old_url;"
+  echo "SELECT COUNT(*) AS reverted_rows FROM \\"Messages\\" WHERE \\"mediaUrl\\" IN (SELECT old_url FROM s3_media_urls);"
+} | sudo docker exec -i ${DB_CONTAINER} psql -U ${DB_USER} -d ${DB_NAME} -At -q -f - > "\${RUN_DIR}/db_url_restore.log" 2>&1
+echo "Database URL restore completed. Log: \${RUN_DIR}/db_url_restore.log"
+REST
+chmod 644 "${RESTORE_DB_URLS}"
+
+log "Generated artifacts in ${RUN_DIR}":
 ls -lh "${RUN_DIR}" || true
 
 log "===== SUMMARY ====="
@@ -366,6 +492,7 @@ log "Preview move: ${PREVIEW_MOVE}"
 log "Action move (script, non-executable): ${DO_MOVE_SCRIPT}"
 log "Action delete (script, non-executable): ${DO_DELETE_SCRIPT}"
 log "Restore scripts: ${RESTORE_FROM_BACKUP}, ${RESTORE_FROM_QUAR}, ${RESTORE_FROM_REMOTE}"
+log "DB URL rollback script: ${RESTORE_DB_URLS}"
 log "Log file: ${LOG_FILE}"
 log "Backup dir (if created): ${BACKUP_DIR}"
 log "Quarantine dir: ${QUAR_DIR}"
