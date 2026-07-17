@@ -121,15 +121,14 @@ Todas as variáveis disponíveis estão documentadas em [.env_cleanup_exemplo](.
 
 ### 1️⃣ Dry-Run (Recomendado e PADRÃO)
 
-**Por segurança, o script por padrão NÃO executa ações - apenas gera relatórios:**
+**Por segurança, use o wrapper `run_dry.sh` para apenas gerar relatórios:**
 
 ```bash
-# Executar sem flags = dry-run automático
-sudo ./cleanup_media_manager.sh --days 5
-
-# Ou usar wrapper explícito
+# Apenas gera CSV, previews e scripts de ação (não move, não envia, não altera banco)
 sudo ./run_dry.sh --days 5
 ```
+
+O `run_dry.sh` desliga `--do-backup`, `--do-move`, `--push-remote` e `--update-db-after-push` independentemente do `.env_cleanup`.
 
 **Saída:**
 - CSV com candidatos (tamanho, data, path)
@@ -370,8 +369,11 @@ Options:
   --home-base PATH            Base dir para artifacts (default: /home/ubuntu/cleanup)
   --media-root PATH           Media root do Ticketz
   --do-backup                 Criar backup timestamped
+  --no-backup                 Não criar backup
   --do-move                   Mover arquivos para quarentena
+  --no-move                   Não mover arquivos
   --push-remote               Upload para remote via rclone
+  --no-push-remote            Não fazer upload
   --rclone-remote NAME/PATH   Override RCLONE_REMOTE
   --s3-public-url URL         Override S3_PUBLIC_URL
   --update-db-after-push      Atualizar mediaUrl no banco para URL S3 (default)

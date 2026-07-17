@@ -59,8 +59,11 @@ while [[ $# -gt 0 ]]; do
     --db-name) DB_NAME="$2"; shift 2;;
     --db-user) DB_USER="$2"; shift 2;;
     --do-backup) DO_BACKUP=1; shift;;
+    --no-backup) DO_BACKUP=0; shift;;
     --do-move) DO_MOVE=1; shift;;
+    --no-move) DO_MOVE=0; shift;;
     --push-remote) PUSH_REMOTE=1; shift;;
+    --no-push-remote) PUSH_REMOTE=0; shift;;
     --rclone-remote) RCLONE_REMOTE="$2"; shift 2;;
     --s3-public-url) S3_PUBLIC_URL="$2"; shift 2;;
     --delete-quarantine-after-push) DELETE_QUAR_AFTER_PUSH=1; shift;;
@@ -77,8 +80,11 @@ Options:
   --home-base PATH            Base dir for artifacts (default ${HOME_BASE})
   --media-root PATH           Media root (default ${MEDIA_ROOT})
   --do-backup                 Perform timestamped backup (rsync)
+  --no-backup                 Skip backup
   --do-move                   Move selected files to quarantine (fixed dir ${HOME_BASE}/quarantine)
+  --no-move                   Skip move
   --push-remote               After move, upload quarantine files to remote (RCLONE_REMOTE)
+  --no-push-remote            Skip remote upload
   --rclone-remote NAME/PATH   Override RCLONE_REMOTE for this run
   --s3-public-url URL         Override S3_PUBLIC_URL for this run
   --update-db-after-push      Update Messages.mediaUrl to S3 URL after upload (default)
