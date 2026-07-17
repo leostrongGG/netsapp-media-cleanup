@@ -170,6 +170,27 @@ log "FS files under media/: $(wc -l < "${RUN_DIR}/media_fs.txt")"
 comm -12 "${RUN_DIR}/media_fs.txt" "${RUN_DIR}/media_ticket_db.txt" > "${CANDIDATES_LIST}"
 log "Candidates (DB ∩ FS): $(wc -l < "${CANDIDATES_LIST}")"
 
+# Filter out candidates whose S3 URL would exceed VARCHAR(255)
+S3_BASE="${S3_PUBLIC_URL%/}"
+if [[ -n "${S3_BASE}" ]]; then
+  MAX_REL_LEN=$((255 - ${#S3_BASE} - 1))
+  if [[ ${MAX_REL_LEN} -ge 1 ]]; then
+    FILTERED_LIST="${RUN_DIR}/media_ticket_candidates_fittable.txt"
+    : > "${FILTERED_LIST}"
+    while IFS= read -r rel; do
+      if [[ ${#rel} -le ${MAX_REL_LEN} ]]; then
+        printf '%s\n' "${rel}" >> "${FILTERED_LIST}"
+      fi
+    done < "${CANDIDATES_LIST}"
+    too_long=$(( $(wc -l < "${CANDIDATES_LIST}") - $(wc -l < "${FILTERED_LIST}") ))
+    if [[ ${too_long} -gt 0 ]]; then
+      log "WARN: ${too_long} candidate(s) exceed VARCHAR(255) S3 URL limit and will be skipped."
+      log "Set a shorter S3_PUBLIC_URL or shorten filenames before cleanup."
+    fi
+    cp "${FILTERED_LIST}" "${CANDIDATES_LIST}"
+  fi
+fi
+
 # ---------------------------
 # Step 5: write CSV (persistent)
 # ---------------------------

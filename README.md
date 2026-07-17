@@ -16,7 +16,7 @@ Este projeto foi criado para gerenciar o crescimento descontrolado de arquivos d
 
 ## 🏗️ Arquitetura
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │  PostgreSQL (Docker)                                    │
 │  └─ Messages table (mediaUrl + ticketId)                │
@@ -44,7 +44,7 @@ Este projeto foi criado para gerenciar o crescimento descontrolado de arquivos d
 
 ## 📦 Estrutura de Pastas
 
-```
+```text
 cleanup/
 ├── cleanup_media_manager.sh      # Script principal
 ├── restore_helper.sh             # Helper de restauração
@@ -81,47 +81,50 @@ cleanup/
 ### Setup
 
 1. **Clone o repositório**
-```bash
-git clone https://github.com/leostrongGG/netsapp-media-cleanup.git
-cd netsapp-media-cleanup
-```
+
+   ```bash
+   git clone https://github.com/leostrongGG/netsapp-media-cleanup.git
+   cd netsapp-media-cleanup
+   ```
 
 2. **Configure permissões**
-```bash
-chmod +x cleanup_media_manager.sh restore_helper.sh run_dry.sh
-```
+
+   ```bash
+   chmod +x cleanup_media_manager.sh restore_helper.sh run_dry.sh
+   ```
 
 3. **Configure rclone (se usar upload remoto)**
-```bash
-rclone config
-# Configure seu remote Backblaze B2, S3, etc.
-```
+
+   ```bash
+   rclone config
+   # Configure seu remote Backblaze B2, S3, etc.
+   ```
 
 4. **Crie o arquivo de configuração local**
 
-```bash
-cp .env_cleanup_exemplo .env_cleanup
-nano .env_cleanup
-```
+   ```bash
+   cp .env_cleanup_exemplo .env_cleanup
+   nano .env_cleanup
+   ```
 
-Ajuste no mínimo estas variáveis:
+   Ajuste no mínimo estas variáveis:
 
-```bash
-RCLONE_REMOTE="seu_remote:seu_bucket/caminho/para/media"
-S3_PUBLIC_URL="https://sua-url-publica.example.com/bucket/caminho"
-```
+   ```bash
+   RCLONE_REMOTE="seu_remote:seu_bucket/caminho/para/media"
+   S3_PUBLIC_URL="https://sua-url-publica.example.com/bucket/caminho"
+   ```
 
-> ⚠️ **Nunca commite `.env_cleanup` no Git.** Ele contém dados sensíveis da sua infraestrutura.
->
-> O script carrega automaticamente `.env_cleanup` do mesmo diretório, então você pode fazer `git pull` para atualizar o script sem perder suas configurações.
+   > ⚠️ **Nunca commite `.env_cleanup` no Git.** Ele contém dados sensíveis da sua infraestrutura.
+   >
+   > O script carrega automaticamente `.env_cleanup` do mesmo diretório, então você pode fazer `git pull` para atualizar o script sem perder suas configurações.
 
-Todas as variáveis disponíveis estão documentadas em [.env_cleanup_exemplo](.env_cleanup_exemplo).
+   Todas as variáveis disponíveis estão documentadas em [.env_cleanup_exemplo](.env_cleanup_exemplo).
 
 ## 💡 Uso
 
 ### 1️⃣ Dry-Run (Recomendado e PADRÃO)
 
-**Por segurança, use o wrapper `run_dry.sh` para apenas gerar relatórios:**
+Por segurança, use o wrapper `run_dry.sh` para apenas gerar relatórios:
 
 ```bash
 # Apenas gera CSV, previews e scripts de ação (não move, não envia, não altera banco)
@@ -131,6 +134,7 @@ sudo ./run_dry.sh --days 5
 O `run_dry.sh` desliga `--do-backup`, `--do-move`, `--push-remote` e `--update-db-after-push` independentemente do `.env_cleanup`.
 
 **Saída:**
+
 - CSV com candidatos (tamanho, data, path)
 - Scripts de preview (`preview_move_cmds.sh`)
 - Scripts de ação (não-executáveis)
@@ -142,7 +146,7 @@ O `run_dry.sh` desliga `--do-backup`, `--do-move`, `--push-remote` e `--update-d
 sudo ./cleanup_media_manager.sh --days 5 --do-backup
 ```
 
-Cria backup timestamped em `backups/media_backup_YYYYMMDD_HHMMSS/`
+Cria backup timestamped em `backups/media_backup_YYYYMMDD_HHMMSS/`.
 
 ### 3️⃣ Apenas Mover para Quarentena
 
@@ -167,6 +171,7 @@ sudo ./cleanup_media_manager.sh \
 ```
 
 Executa:
+
 1. Move arquivos → quarentena
 2. Upload para Backblaze B2/S3 via rclone
 3. Atualiza `Messages.mediaUrl` de `media/...` para `https://...`
@@ -189,6 +194,7 @@ sudo rclone --config /home/ubuntu/.config/rclone/rclone.conf \
 ### Usando restore_helper.sh (Recomendado)
 
 #### Restaurar todos os arquivos de um run (do remote)
+
 ```bash
 sudo ./restore_helper.sh \
   --from remote \
@@ -196,6 +202,7 @@ sudo ./restore_helper.sh \
 ```
 
 #### Restaurar apenas arquivos da empresa 1
+
 ```bash
 sudo ./restore_helper.sh \
   --from remote \
@@ -204,6 +211,7 @@ sudo ./restore_helper.sh \
 ```
 
 #### Restaurar um único arquivo (do remote)
+
 ```bash
 sudo ./restore_helper.sh \
   --from remote \
@@ -212,6 +220,7 @@ sudo ./restore_helper.sh \
 ```
 
 #### Restaurar de backup local
+
 ```bash
 sudo ./restore_helper.sh \
   --from backup \
@@ -250,12 +259,14 @@ sudo bash restore_db_urls_20260107_150000.sh \
 Para rodar automaticamente, use o crontab do usuário (mesma forma que outros scripts):
 
 **Primeiro, crie o arquivo de log:**
+
 ```bash
 touch /home/ubuntu/cleanup/cleanup_media.log
 chmod 644 /home/ubuntu/cleanup/cleanup_media.log
 ```
 
 **Depois configure o cron:**
+
 ```bash
 crontab -e
 ```
@@ -276,6 +287,7 @@ Adicione uma das opções:
 > As ações (`--do-move`, `--push-remote`, etc.) agora são controladas por `.env_cleanup`, então o comando do cron pode ser simples. Você ainda pode usar flags para override temporário.
 
 **Verificar se está ativo:**
+
 ```bash
 # Ver suas tarefas agendadas
 crontab -l
@@ -288,6 +300,7 @@ ls -lht /home/ubuntu/cleanup/runs/ | head -5
 ```
 
 **Exemplos de agendamento:**
+
 - `0 3 * * *` - Todo dia às 03:00
 - `0 3 * * 0` - Todo domingo às 03:00 (semanal) ⭐
 - `0 3 1 * *` - Todo dia 1 do mês às 03:00 (mensal)
@@ -297,29 +310,29 @@ ls -lht /home/ubuntu/cleanup/runs/ | head -5
 
 Cada execução cria em `runs/run_YYYYMMDD_HHMMSS/`:
 
-| Arquivo | Descrição |
-|---------|-----------|
-| `media_ticket_candidates.csv` | CSV com candidatos (size, mtime, path) |
-| `media_ticket_candidates.txt` | Lista de paths relativos |
-| `media_ticket_db_raw.txt` | Query raw do DB |
-| `media_ticket_db.txt` | Paths normalizados do DB |
-| `media_fs.txt` | Scan do filesystem |
-| `preview_move_cmds.sh` | Preview (echo) dos comandos de move |
-| `preview_delete_cmds.sh` | Preview (echo) dos comandos de delete |
-| `do_move_cmds.sh` | Script de ação (move) - **não-executável** |
-| `do_delete_cmds.sh` | Script de ação (delete) - **não-executável** |
-| `restore_from_backup_*.sh` | Restaurar de backup local |
-| `restore_from_quarantine_*.sh` | Restaurar da quarentena |
-| `restore_from_remote_*.sh` | Restaurar do remote (B2/S3) e reverter URLs do banco |
-| `restore_db_urls_*.sh` | Reverter `mediaUrl` do S3 para `media/` sem mover arquivos |
-| `db_url_update.csv` | Mapeamento `media/...` → `https://...` |
-| `db_url_update.sql` | SQL executado no PostgreSQL |
-| `db_update.log` | Resultado do UPDATE no banco |
-| `moved_list.txt` | Lista de arquivos efetivamente movidos |
-| `rclone_upload.log` | Log do upload rclone |
-| `run.log` | Log geral da execução |
+| Arquivo                         | Descrição                                            |
+|---------------------------------|------------------------------------------------------|
+| `media_ticket_candidates.csv`   | CSV com candidatos (size, mtime, path)               |
+| `media_ticket_candidates.txt`   | Lista de paths relativos                             |
+| `media_ticket_db_raw.txt`       | Query raw do DB                                      |
+| `media_ticket_db.txt`           | Paths normalizados do DB                             |
+| `media_fs.txt`                  | Scan do filesystem                                   |
+| `preview_move_cmds.sh`          | Preview (echo) dos comandos de move                  |
+| `preview_delete_cmds.sh`        | Preview (echo) dos comandos de delete                |
+| `do_move_cmds.sh`               | Script de ação (move) - **não-executável**           |
+| `do_delete_cmds.sh`             | Script de ação (delete) - **não-executável**         |
+| `restore_from_backup_*.sh`      | Restaurar de backup local                            |
+| `restore_from_quarantine_*.sh`  | Restaurar da quarentena                              |
+| `restore_from_remote_*.sh`      | Restaurar do remote (B2/S3) e reverter URLs do banco |
+| `restore_db_urls_*.sh`          | Reverter `mediaUrl` do S3 para `media/` sem mover    |
+| `db_url_update.csv`             | Mapeamento `media/...` → `https://...`               |
+| `db_url_update.sql`             | SQL executado no PostgreSQL                          |
+| `db_update.log`                 | Resultado do UPDATE no banco                         |
+| `moved_list.txt`                | Lista de arquivos efetivamente movidos               |
+| `rclone_upload.log`             | Log do upload rclone                                 |
+| `run.log`                       | Log geral da execução                                |
 
-## 🛡️ Segurança
+## 🛡️ Segurança e Limitações
 
 - ✅ **Scripts de ação não são executáveis por padrão** - evita acidentes
 - ✅ **Dry-run mode** - sempre teste antes
@@ -327,12 +340,34 @@ Cada execução cria em `runs/run_YYYYMMDD_HHMMSS/`:
 - ✅ **Backups timestamped** com retenção configurável (`--prune-keep N`)
 - ✅ **Logs completos** de todas as operações
 - ✅ **Scripts de restauração** gerados automaticamente
+- ⚠️ **Limite de `VARCHAR(255)`**: a coluna `Messages.mediaUrl` é `VARCHAR(255)`. URLs S3 muito longas são automaticamente ignoradas pelo script para não quebrar o banco. Use um domínio S3 curto ou renomeie arquivos longos antes do upload.
+
+## 🔄 Correção Histórica de mediaUrl
+
+Se você já enviou mídias para o S3 antes desta versão e o `mediaUrl` ainda aponta para `media/...`, use os scripts auxiliares:
+
+```bash
+# Gera lista de todos os arquivos enviados em runs anteriores
+sudo ./generate_uploaded_files_list.sh
+
+# Atualiza o banco apenas para os que cabem em VARCHAR(255)
+sudo ./fix_historic_media_urls.sh
+```
+
+O `generate_uploaded_files_list.sh` cria três arquivos:
+
+- `all_uploaded_files.txt` — todos os arquivos únicos
+- `all_uploaded_files_fittable.txt` — cabem na URL de 255 caracteres
+- `all_uploaded_files_too_long.txt` — excedem o limite (não serão atualizados)
+
+Para corrigir os muito longos, use um domínio S3 mais curto ou renomeie os arquivos no S3 antes de atualizar o banco.
 
 ## 🔧 Troubleshooting
 
 ### Arquivo restaurado ainda dá 404
 
 Limpe caches do Nginx/Backend:
+
 ```bash
 sudo docker restart ticketz-nginx-proxy
 sudo docker restart ticketz-docker-acme-backend-1
@@ -341,6 +376,7 @@ sudo docker restart ticketz-docker-acme-backend-1
 ### Erro de permissão no rclone
 
 Certifique-se que o config do rclone está acessível:
+
 ```bash
 ls -la /home/ubuntu/.config/rclone/rclone.conf
 # Deve ter permissão 600 ou 644
@@ -401,6 +437,7 @@ Contribuições são bem-vindas! Sinta-se livre para:
 ## 📝 Changelog
 
 ### v1.0.0 (2026-01-07)
+
 - ✨ Release inicial
 - Sistema completo de backup/move/upload
 - Helper de restauração
@@ -420,6 +457,3 @@ Este script é fornecido "como está", sem garantias. Sempre teste em ambiente n
 - [Ticketz (Sistema original)](https://github.com/ticketz-oss/ticketz)
 - [Rclone Documentation](https://rclone.org/docs/)
 - [Backblaze B2 Setup](https://rclone.org/b2/)
-
----
-

@@ -30,8 +30,9 @@ DB_CONTAINER="${DB_CONTAINER:-ticketz-docker-acme-postgres-1}"
 DB_NAME="${DB_NAME:-ticketz}"
 DB_USER="${DB_USER:-ticketz}"
 
-# Arquivo de entrada com todos os paths relativos já enviados ao S3 (um por linha)
-INPUT_FILE="${INPUT_FILE:-all_uploaded_files.txt}"
+# Arquivo de entrada com paths relativos já enviados ao S3 que cabem em VARCHAR(255).
+# O padrão usa all_uploaded_files_fittable.txt, gerado por generate_uploaded_files_list.sh.
+INPUT_FILE="${INPUT_FILE:-all_uploaded_files_fittable.txt}"
 
 # ---------------------------
 # Caminhos de saída
@@ -52,13 +53,21 @@ if [[ ! -f "${SCRIPT_DIR}/${INPUT_FILE}" ]]; then
 fi
 
 S3_BASE="${S3_PUBLIC_URL%/}"
+MAX_REL_LEN=$((255 - ${#S3_BASE} - 1))
 
 log() { echo "[$(date +'%F %T')] $*"; }
+
+log "S3_PUBLIC_URL: ${S3_PUBLIC_URL}"
+log "Max rel path length for VARCHAR(255): ${MAX_REL_LEN}"
 
 log "Gerando CSV de correção histórica..."
 : > "${CSV_FILE}"
 while IFS= read -r rel; do
   [[ -z "${rel}" ]] && continue
+  if [[ ${#rel} -gt ${MAX_REL_LEN} ]]; then
+    log "SKIP (too long for VARCHAR(255)): ${rel}"
+    continue
+  fi
   old_url="media/${rel}"
   new_url="${S3_BASE}/${rel}"
   old_escaped="${old_url//\"/\"\"}"

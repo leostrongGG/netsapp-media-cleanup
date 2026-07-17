@@ -16,7 +16,7 @@ tmp_restore/
 *.csv
 
 # Arquivos gerados pelos scripts de correção histórica
-all_uploaded_files.txt
+all_uploaded_files*.txt
 historic_db_url_update.*
 
 # Configurações locais (não commitar credenciais)
