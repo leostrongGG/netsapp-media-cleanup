@@ -44,8 +44,10 @@ Este projeto foi criado para gerenciar o crescimento descontrolado de arquivos d
 
 ## 📦 Estrutura de Pastas
 
+> Os exemplos abaixo usam o nome padrão do repositório: `netsapp-media-cleanup`. Se você clonou em outra pasta, ajuste os caminhos.
+
 ```text
-cleanup/
+netsapp-media-cleanup/
 ├── cleanup_media_manager.sh      # Script principal
 ├── restore_helper.sh             # Helper de restauração
 ├── run_dry.sh                    # Wrapper para dry-run
@@ -180,9 +182,9 @@ Executa:
 ### 5️⃣ Testar Upload Rclone (Dry-Run Manual)
 
 ```bash
-RUN=$(ls -1dt /home/ubuntu/cleanup/runs/run_* | head -n1)
+RUN=$(ls -1dt /home/ubuntu/netsapp-media-cleanup/runs/run_* | head -n1)
 sudo rclone --config /home/ubuntu/.config/rclone/rclone.conf \
-  copy /home/ubuntu/cleanup/quarantine \
+  copy /home/ubuntu/netsapp-media-cleanup/quarantine \
   yourremote:yourbucket/path/to/media \
   --files-from "${RUN}/media_ticket_candidates.txt" \
   --dry-run --progress \
@@ -198,7 +200,7 @@ sudo rclone --config /home/ubuntu/.config/rclone/rclone.conf \
 ```bash
 sudo ./restore_helper.sh \
   --from remote \
-  --run /home/ubuntu/cleanup/runs/run_20260107_150000
+  --run /home/ubuntu/netsapp-media-cleanup/runs/run_20260107_150000
 ```
 
 #### Restaurar apenas arquivos da empresa 1
@@ -206,7 +208,7 @@ sudo ./restore_helper.sh \
 ```bash
 sudo ./restore_helper.sh \
   --from remote \
-  --run /home/ubuntu/cleanup/runs/run_20260107_150000 \
+  --run /home/ubuntu/netsapp-media-cleanup/runs/run_20260107_150000 \
   --company 1
 ```
 
@@ -215,7 +217,7 @@ sudo ./restore_helper.sh \
 ```bash
 sudo ./restore_helper.sh \
   --from remote \
-  --run /home/ubuntu/cleanup/runs/run_20260107_150000 \
+  --run /home/ubuntu/netsapp-media-cleanup/runs/run_20260107_150000 \
   --file "2/416/28/Yvx4NCwMLp/vendas ernesto.xls"
 ```
 
@@ -224,7 +226,7 @@ sudo ./restore_helper.sh \
 ```bash
 sudo ./restore_helper.sh \
   --from backup \
-  --backup-dir /home/ubuntu/cleanup/backups/media_backup_20260107_150000 \
+  --backup-dir /home/ubuntu/netsapp-media-cleanup/backups/media_backup_20260107_150000 \
   --file "1/374/8/TCsKn-1765832675438.jpeg"
 ```
 
@@ -233,25 +235,25 @@ sudo ./restore_helper.sh \
 Os scripts gerados automaticamente em cada run também podem ser usados:
 
 ```bash
-cd /home/ubuntu/cleanup/runs/run_20260107_150000
+cd /home/ubuntu/netsapp-media-cleanup/runs/run_20260107_150000
 
 # Do backup local
 sudo bash restore_from_backup_20260107_150000.sh \
-  /home/ubuntu/cleanup/backups/media_backup_20260107_150000 \
-  /home/ubuntu/cleanup/runs/run_20260107_150000
+  /home/ubuntu/netsapp-media-cleanup/backups/media_backup_20260107_150000 \
+  /home/ubuntu/netsapp-media-cleanup/runs/run_20260107_150000
 
 # Da quarentena
 sudo bash restore_from_quarantine_20260107_150000.sh \
-  /home/ubuntu/cleanup/runs/run_20260107_150000
+  /home/ubuntu/netsapp-media-cleanup/runs/run_20260107_150000
 
 # Do remote (Backblaze B2/S3) — restaura arquivos E reverte mediaUrl no banco
 sudo bash restore_from_remote_20260107_150000.sh \
   yourremote:yourbucket/path/to/media \
-  /home/ubuntu/cleanup/runs/run_20260107_150000
+  /home/ubuntu/netsapp-media-cleanup/runs/run_20260107_150000
 
 # Reverter apenas as URLs do banco (sem mover arquivos)
 sudo bash restore_db_urls_20260107_150000.sh \
-  /home/ubuntu/cleanup/runs/run_20260107_150000
+  /home/ubuntu/netsapp-media-cleanup/runs/run_20260107_150000
 ```
 
 ## ⚙️ Automação com Cron
@@ -261,8 +263,8 @@ Para rodar automaticamente, use o crontab do usuário (mesma forma que outros sc
 **Primeiro, crie o arquivo de log:**
 
 ```bash
-touch /home/ubuntu/cleanup/cleanup_media.log
-chmod 644 /home/ubuntu/cleanup/cleanup_media.log
+touch /home/ubuntu/netsapp-media-cleanup/cleanup_media.log
+chmod 644 /home/ubuntu/netsapp-media-cleanup/cleanup_media.log
 ```
 
 **Depois configure o cron:**
@@ -275,13 +277,13 @@ Adicione uma das opções:
 
 ```cron
 # Opção 1: Cleanup semanal (domingo às 03:00) - RECOMENDADO
-0 3 * * 0 /home/ubuntu/cleanup/cleanup_media_manager.sh --days 15 >> /home/ubuntu/cleanup/cleanup_media.log 2>&1
+0 3 * * 0 /home/ubuntu/netsapp-media-cleanup/cleanup_media_manager.sh --days 15 >> /home/ubuntu/netsapp-media-cleanup/cleanup_media.log 2>&1
 
 # Opção 2: Cleanup diário às 03:00
-0 3 * * * /home/ubuntu/cleanup/cleanup_media_manager.sh --days 15 >> /home/ubuntu/cleanup/cleanup_media.log 2>&1
+0 3 * * * /home/ubuntu/netsapp-media-cleanup/cleanup_media_manager.sh --days 15 >> /home/ubuntu/netsapp-media-cleanup/cleanup_media.log 2>&1
 
 # Opção 3: Apenas dry-run diário (para monitoramento)
-0 3 * * * /home/ubuntu/cleanup/run_dry.sh --days 15 >> /home/ubuntu/cleanup/cleanup_dry.log 2>&1
+0 3 * * * /home/ubuntu/netsapp-media-cleanup/run_dry.sh --days 15 >> /home/ubuntu/netsapp-media-cleanup/cleanup_dry.log 2>&1
 ```
 
 > As ações (`--do-move`, `--push-remote`, etc.) agora são controladas por `.env_cleanup`, então o comando do cron pode ser simples. Você ainda pode usar flags para override temporário.
@@ -293,10 +295,10 @@ Adicione uma das opções:
 crontab -l
 
 # Acompanhar logs em tempo real
-tail -f /home/ubuntu/cleanup/cleanup_media.log
+tail -f /home/ubuntu/netsapp-media-cleanup/cleanup_media.log
 
 # Ver últimas execuções
-ls -lht /home/ubuntu/cleanup/runs/ | head -5
+ls -lht /home/ubuntu/netsapp-media-cleanup/runs/ | head -5
 ```
 
 **Exemplos de agendamento:**
@@ -385,14 +387,14 @@ ls -la /home/ubuntu/.config/rclone/rclone.conf
 ### Verificar espaço disponível
 
 ```bash
-df -h /home/ubuntu/cleanup
+df -h /home/ubuntu/netsapp-media-cleanup
 df -h /var/lib/docker/volumes
 ```
 
 ### Ver últimas execuções
 
 ```bash
-ls -lht /home/ubuntu/cleanup/runs/ | head -10
+ls -lht /home/ubuntu/netsapp-media-cleanup/runs/ | head -10
 ```
 
 ## 📊 Opções do Script Principal
@@ -402,7 +404,7 @@ ls -lht /home/ubuntu/cleanup/runs/ | head -10
 
 Options:
   --days N                    Considerar mensagens > N dias (default: 15)
-  --home-base PATH            Base dir para artifacts (default: /home/ubuntu/cleanup)
+  --home-base PATH            Base dir para artifacts (default: /home/ubuntu/netsapp-media-cleanup)
   --media-root PATH           Media root do Ticketz
   --do-backup                 Criar backup timestamped
   --no-backup                 Não criar backup
